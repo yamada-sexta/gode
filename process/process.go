@@ -53,6 +53,22 @@ func Setup(vm *goja.Runtime, version, script string, args []string) {
 		}
 	}
 
+	// process.nextTick(callback, ...args)
+	proc.Set("nextTick", func(call goja.FunctionCall) goja.Value {
+		if len(call.Arguments) == 0 {
+			return goja.Undefined()
+		}
+		callback, ok := goja.AssertFunction(call.Argument(0))
+		if !ok {
+			panic(vm.ToValue("TypeError [ERR_INVALID_CALLBACK]: Callback must be a function"))
+		}
+		// Synchronously call for now as gode has no event loop
+		if _, err := callback(goja.Undefined(), call.Arguments[1:]...); err != nil {
+			panic(err)
+		}
+		return goja.Undefined()
+	})
+
 	// console — goja does not provide a built-in console.
 	consolePrint := func(w *os.File) func(goja.FunctionCall) goja.Value {
 		return func(call goja.FunctionCall) goja.Value {

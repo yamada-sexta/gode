@@ -216,7 +216,9 @@ func setupFSNative(vm *goja.Runtime) {
 					return e;
 				})()
 			`, err.Error(), code, path))
-			callback(goja.Undefined(), errObj)
+			if _, err := callback(goja.Undefined(), errObj); err != nil {
+				panic(err)
+			}
 			return goja.Undefined()
 		}
 
@@ -239,7 +241,9 @@ func setupFSNative(vm *goja.Runtime) {
 			result = vm.ToValue(string(data))
 		}
 
-		callback(goja.Undefined(), goja.Null(), result)
+		if _, err := callback(goja.Undefined(), goja.Null(), result); err != nil {
+			panic(err)
+		}
 		return goja.Undefined()
 	})
 
