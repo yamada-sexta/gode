@@ -1,5 +1,6 @@
 {
   "dependencies": {
-    "check-ecmascript-version-compatibility": "^0.2.0"
+    "check-ecmascript-version-compatibility": "^0.2.0",
+    "mocha": "^11.7.5"
   }
 }
