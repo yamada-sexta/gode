@@ -7,13 +7,32 @@ package modules
 import (
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/dop251/goja"
+	"github.com/dop251/goja/parser"
 )
+
+// sourceMapLoader returns a parser.Option that resolves source map
+// paths relative to baseDir. If the .map file does not exist the
+// error is silently ignored so that packages shipping without maps
+// still load correctly.
+func sourceMapLoader(baseDir string) parser.Option {
+	return parser.WithSourceMapLoader(func(path string) ([]byte, error) {
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(baseDir, path)
+		}
+		data, err := os.ReadFile(path)
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return data, err
+	})
+}
 
 //go:embed assert.js
 var assertSource string
@@ -162,7 +181,17 @@ func (l *Loader) loadFileModule(name, resolved string) goja.Value {
 	l.vm.Set("module", moduleObj)
 	l.vm.Set("exports", exportsObj)
 
-	_, err = l.vm.RunString(string(src))
+	ast, parseErr := goja.Parse(resolved, string(src), sourceMapLoader(dir))
+	if parseErr != nil {
+		err = parseErr
+	} else {
+		prg, compileErr := goja.CompileAST(ast, false)
+		if compileErr != nil {
+			err = compileErr
+		} else {
+			_, err = l.vm.RunProgram(prg)
+		}
+	}
 
 	// Capture module.exports BEFORE restoring globals.
 	result, _ := l.vm.RunString(`module.exports`)

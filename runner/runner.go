@@ -2,6 +2,7 @@
 package runner
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -27,10 +28,35 @@ func ExecFile(vm *goja.Runtime, path string) error {
 		return fmt.Errorf("gode: %v", err)
 	}
 	abs, _ := filepath.Abs(path)
+	dir := filepath.Dir(abs)
 	vm.Set("__filename", abs)
-	vm.Set("__dirname", filepath.Dir(abs))
-	_, err = vm.RunString(string(src))
+	vm.Set("__dirname", dir)
+
+	ast, err := goja.Parse(abs, string(src), sourceMapLoader(dir))
+	if err != nil {
+		return err
+	}
+	prg, err := goja.CompileAST(ast, false)
+	if err != nil {
+		return err
+	}
+	_, err = vm.RunProgram(prg)
 	return err
+}
+
+// sourceMapLoader returns a parser.Option that resolves source map
+// paths relative to baseDir. Missing .map files are silently ignored.
+func sourceMapLoader(baseDir string) parser.Option {
+	return parser.WithSourceMapLoader(func(path string) ([]byte, error) {
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(baseDir, path)
+		}
+		data, err := os.ReadFile(path)
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return data, err
+	})
 }
 
 // RunStdin reads all of stdin and executes it.
