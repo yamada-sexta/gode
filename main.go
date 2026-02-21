@@ -9,6 +9,7 @@ import (
 	"github.com/robertkrimen/otto"
 
 	"gode/envfile"
+	"gode/modules"
 	"gode/process"
 	"gode/repl"
 	"gode/runner"
@@ -74,6 +75,7 @@ func main() {
 	// From here on we need a VM.
 	vm := otto.New()
 	process.Setup(vm, getVersion(), opts.Script, opts.ScriptArgs)
+	modules.NewLoader(vm)
 
 	// -e / --eval
 	if opts.Eval != "" {
