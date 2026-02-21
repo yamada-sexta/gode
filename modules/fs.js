@@ -7,6 +7,7 @@
 
   // ── Sync API ──────────────────────────────────────────────────────
 
+  mod.readFile = function (path, options, callback) { return _fs.readFile(path, options, callback); };
   mod.readFileSync = function (path, options) { return _fs.readFileSync(path, options); };
   mod.writeFileSync = function (path, data, options) { return _fs.writeFileSync(path, data, options); };
   mod.appendFileSync = function (path, data, options) { return _fs.appendFileSync(path, data, options); };

@@ -167,6 +167,82 @@ func setupFSNative(vm *goja.Runtime) {
 		panic(errObj)
 	}
 
+	// ── readFile ──────────────────────────────────────────────────────
+	fsObj.Set("readFile", func(call goja.FunctionCall) goja.Value {
+		path := call.Argument(0).String()
+
+		var callback goja.Callable
+		var options goja.Value
+		var hasOptions bool
+
+		if len(call.Arguments) > 1 {
+			arg1 := call.Argument(1)
+			if cb, ok := goja.AssertFunction(arg1); ok {
+				callback = cb
+			} else {
+				options = arg1
+				hasOptions = true
+				if len(call.Arguments) > 2 {
+					if cb, ok := goja.AssertFunction(call.Argument(2)); ok {
+						callback = cb
+					}
+				}
+			}
+		}
+
+		if callback == nil {
+			panic(vm.ToValue("TypeError [ERR_INVALID_CALLBACK]: Callback must be a function"))
+		}
+
+		data, err := os.ReadFile(path)
+		if err != nil {
+			code := "ERR"
+			if pe, ok := err.(*os.PathError); ok {
+				if se, ok := pe.Err.(syscall.Errno); ok {
+					switch se {
+					case syscall.ENOENT:
+						code = "ENOENT"
+					default:
+						code = se.Error()
+					}
+				}
+			}
+
+			errObj, _ := vm.RunString(fmt.Sprintf(`
+				(function() {
+					var e = new Error(%q);
+					e.code = %q;
+					e.path = %q;
+					return e;
+				})()
+			`, err.Error(), code, path))
+			callback(goja.Undefined(), errObj)
+			return goja.Undefined()
+		}
+
+		var result goja.Value
+		enc := ""
+		if hasOptions {
+			if s, ok := options.Export().(string); ok {
+				enc = s
+			} else if obj, ok := options.Export().(map[string]interface{}); ok {
+				if e, ok := obj["encoding"]; ok {
+					enc, _ = e.(string)
+				}
+			}
+		}
+
+		if enc == "utf8" || enc == "utf-8" || enc == "ascii" || enc == "latin1" {
+			result = vm.ToValue(string(data))
+		} else {
+			// Return string by default (Buffer not yet fully supported)
+			result = vm.ToValue(string(data))
+		}
+
+		callback(goja.Undefined(), goja.Null(), result)
+		return goja.Undefined()
+	})
+
 	// ── readFileSync ──────────────────────────────────────────────────
 
 	fsObj.Set("readFileSync", func(call goja.FunctionCall) goja.Value {

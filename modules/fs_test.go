@@ -85,6 +85,37 @@ func TestFS_ReadFileSyncEncoding(t *testing.T) {
 	}
 }
 
+func TestFS_ReadFile(t *testing.T) {
+	vm := fsVM(t)
+	dir := t.TempDir()
+	p := filepath.Join(dir, "read.txt")
+	os.WriteFile(p, []byte("async data"), 0o644)
+	vm.Set("__path", p)
+
+	mustRunF(t, vm, `
+		var results = [];
+		fs.readFile(__path, 'utf8', function(err, data) {
+			if (err) throw err;
+			results.push(data);
+		});
+		if (results.length !== 1) throw new Error('expected 1 result, got ' + results.length);
+		if (results[0] !== 'async data') throw new Error('expected "async data", got ' + results[0]);
+	`)
+}
+
+func TestFS_ReadFileError(t *testing.T) {
+	vm := fsVM(t)
+	mustRunF(t, vm, `
+		var errorCaught = false;
+		fs.readFile('/nonexistent/xyz', function(err, data) {
+			if (err && err.code === 'ENOENT') {
+				errorCaught = true;
+			}
+		});
+		if (!errorCaught) throw new Error('expected ENOENT error callback');
+	`)
+}
+
 // ---------------------------------------------------------------------------
 // appendFileSync
 // ---------------------------------------------------------------------------
