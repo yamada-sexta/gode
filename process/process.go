@@ -4,6 +4,7 @@
 package process
 
 import (
+	"fmt"
 	"os"
 	"strings"
 
@@ -51,4 +52,23 @@ func Setup(vm *goja.Runtime, version, script string, args []string) {
 			envObj.Set(k, v)
 		}
 	}
+
+	// console — goja does not provide a built-in console.
+	consolePrint := func(w *os.File) func(goja.FunctionCall) goja.Value {
+		return func(call goja.FunctionCall) goja.Value {
+			args := make([]interface{}, len(call.Arguments))
+			for i, a := range call.Arguments {
+				args[i] = a.Export()
+			}
+			fmt.Fprintln(w, args...)
+			return goja.Undefined()
+		}
+	}
+	con := vm.NewObject()
+	con.Set("log", consolePrint(os.Stdout))
+	con.Set("info", consolePrint(os.Stdout))
+	con.Set("debug", consolePrint(os.Stdout))
+	con.Set("error", consolePrint(os.Stderr))
+	con.Set("warn", consolePrint(os.Stderr))
+	vm.Set("console", con)
 }

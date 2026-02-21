@@ -7,10 +7,64 @@ import (
 	"os/user"
 	"runtime"
 	"strconv"
+	"strings"
 	"syscall"
 
 	"github.com/dop251/goja"
 )
+
+// byteFieldToString converts a [65]int8 utsname field to a Go string.
+func byteFieldToString(arr [65]int8) string {
+	n := 0
+	for n < len(arr) && arr[n] != 0 {
+		n++
+	}
+	buf := make([]byte, n)
+	for i := 0; i < n; i++ {
+		buf[i] = byte(arr[i])
+	}
+	return string(buf)
+}
+
+type cpuInfo struct {
+	model string
+	speed int
+}
+
+// parseCPUInfo reads /proc/cpuinfo and returns per-core info.
+func parseCPUInfo() []cpuInfo {
+	data, err := os.ReadFile("/proc/cpuinfo")
+	if err != nil {
+		return make([]cpuInfo, runtime.NumCPU())
+	}
+
+	var cpus []cpuInfo
+	var cur cpuInfo
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, "model name") {
+			parts := strings.SplitN(line, ":", 2)
+			if len(parts) == 2 {
+				cur.model = strings.TrimSpace(parts[1])
+			}
+		} else if strings.HasPrefix(line, "cpu MHz") {
+			parts := strings.SplitN(line, ":", 2)
+			if len(parts) == 2 {
+				f, _ := strconv.ParseFloat(strings.TrimSpace(parts[1]), 64)
+				cur.speed = int(f)
+			}
+		} else if line == "" && cur.model != "" {
+			cpus = append(cpus, cur)
+			cur = cpuInfo{}
+		}
+	}
+	if cur.model != "" {
+		cpus = append(cpus, cur)
+	}
+	if len(cpus) == 0 {
+		return make([]cpuInfo, runtime.NumCPU())
+	}
+	return cpus
+}
 
 // setupOSNative installs an __os helper object on the VM with Go-backed
 // functions that the os.js wrapper calls.
