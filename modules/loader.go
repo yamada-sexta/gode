@@ -16,6 +16,12 @@ var assertSource string
 //go:embed buffer.js
 var bufferSource string
 
+//go:embed path.js
+var pathSource string
+
+//go:embed os.js
+var osSource string
+
 // Loader manages built-in module registration, caching, and the
 // require() function installed on the VM.
 type Loader struct {
@@ -33,11 +39,18 @@ func NewLoader(vm *otto.Otto) *Loader {
 		cache:    make(map[string]otto.Value),
 	}
 
+	// Install native helpers needed by JS modules.
+	setupOSNative(vm)
+
 	// Built-in modules.
 	l.Register("assert", assertSource)
 	l.Register("node:assert", assertSource)
 	l.Register("buffer", bufferSource)
 	l.Register("node:buffer", bufferSource)
+	l.Register("path", pathSource)
+	l.Register("node:path", pathSource)
+	l.Register("os", osSource)
+	l.Register("node:os", osSource)
 
 	// Install require().
 	vm.Set("require", l.require)
