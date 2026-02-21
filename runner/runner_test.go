@@ -259,3 +259,50 @@ func TestValidateSyntax_ES6Syntax(t *testing.T) {
 		t.Fatalf("ES6 syntax should be valid: %v", err)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Source Map Loading
+// ---------------------------------------------------------------------------
+
+func TestExecFile_SourceMapMissing(t *testing.T) {
+	// A JS file with a sourceMappingURL pointing to a nonexistent .map
+	// file should execute without error (map loading is best-effort).
+	dir := t.TempDir()
+	path := filepath.Join(dir, "with_map.js")
+	os.WriteFile(path, []byte(`var smResult = 42;
+//# sourceMappingURL=with_map.js.map
+`), 0644)
+
+	vm := newVM(t)
+	err := ExecFile(vm, path)
+	if err != nil {
+		t.Fatalf("sourceMappingURL with missing .map should not error: %v", err)
+	}
+	val := vm.Get("smResult")
+	if val.ToInteger() != 42 {
+		t.Fatalf("expected 42, got %v", val)
+	}
+}
+
+func TestExecFile_SourceMapPresent(t *testing.T) {
+	// When the .map file exists, it should be loaded without error.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "mapped.js")
+	os.WriteFile(path, []byte(`var mapped = "ok";
+//# sourceMappingURL=mapped.js.map
+`), 0644)
+
+	// Write a minimal valid source map
+	mapContent := `{"version":3,"sources":["mapped.ts"],"names":[],"mappings":"AAAA","file":"mapped.js"}`
+	os.WriteFile(filepath.Join(dir, "mapped.js.map"), []byte(mapContent), 0644)
+
+	vm := newVM(t)
+	err := ExecFile(vm, path)
+	if err != nil {
+		t.Fatalf("sourceMappingURL with present .map should not error: %v", err)
+	}
+	val := vm.Get("mapped")
+	if val.String() != "ok" {
+		t.Fatalf("expected 'ok', got %q", val.String())
+	}
+}
