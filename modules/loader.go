@@ -49,6 +49,9 @@ var osSource string
 //go:embed zlib.js
 var zlibSource string
 
+//go:embed fs.js
+var fsSource string
+
 // Loader manages built-in module registration, caching, and the
 // require() function installed on the VM.
 type Loader struct {
@@ -69,6 +72,7 @@ func NewLoader(vm *goja.Runtime) *Loader {
 	// Install native helpers needed by JS modules.
 	setupOSNative(vm)
 	setupZlibNative(vm)
+	setupFSNative(vm)
 
 	// Built-in modules.
 	l.Register("assert", assertSource)
@@ -81,6 +85,8 @@ func NewLoader(vm *goja.Runtime) *Loader {
 	l.Register("node:os", osSource)
 	l.Register("zlib", zlibSource)
 	l.Register("node:zlib", zlibSource)
+	l.Register("fs", fsSource)
+	l.Register("node:fs", fsSource)
 
 	// Install require().
 	vm.Set("require", l.require)
