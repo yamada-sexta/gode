@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"gode/modules"
+
 	"github.com/dop251/goja"
 	"github.com/dop251/goja/parser"
 )
@@ -32,7 +34,7 @@ func ExecFile(vm *goja.Runtime, path string) error {
 	vm.Set("__filename", abs)
 	vm.Set("__dirname", dir)
 
-	ast, err := goja.Parse(abs, string(src), sourceMapLoader(dir))
+	ast, err := goja.Parse(abs, modules.TransformESM(string(src)), sourceMapLoader(dir))
 	if err != nil {
 		return err
 	}

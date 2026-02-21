@@ -187,7 +187,7 @@ func (l *Loader) loadFileModule(name, resolved string) goja.Value {
 	l.vm.Set("module", moduleObj)
 	l.vm.Set("exports", exportsObj)
 
-	ast, parseErr := goja.Parse(resolved, string(src), sourceMapLoader(dir))
+	ast, parseErr := goja.Parse(resolved, TransformESM(string(src)), sourceMapLoader(dir))
 	if parseErr != nil {
 		err = parseErr
 	} else {
