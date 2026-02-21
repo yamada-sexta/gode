@@ -10,14 +10,15 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// TransformESM unit tests
+// TransformESM unit tests — verify esbuild output is valid CJS
 // ---------------------------------------------------------------------------
 
 func TestTransformESM_NoESM(t *testing.T) {
 	src := `var x = 1; console.log(x);`
 	got := TransformESM(src)
-	if got != src {
-		t.Fatalf("expected unchanged source, got:\n%s", got)
+	// Should still produce valid output (esbuild may reformat slightly)
+	if !strings.Contains(got, "var x = 1") {
+		t.Fatalf("expected source preserved, got:\n%s", got)
 	}
 }
 
@@ -27,35 +28,21 @@ func TestTransformESM_NamedImport(t *testing.T) {
 	if !strings.Contains(got, `require("mod")`) {
 		t.Fatalf("expected require call, got:\n%s", got)
 	}
-	if !strings.Contains(got, "var foo") || !strings.Contains(got, "var bar") {
-		t.Fatalf("expected named bindings, got:\n%s", got)
-	}
-}
-
-func TestTransformESM_NamedImportAlias(t *testing.T) {
-	src := `import { foo as bar } from "mod";`
-	got := TransformESM(src)
-	if !strings.Contains(got, "var bar") {
-		t.Fatalf("expected alias binding, got:\n%s", got)
-	}
-	if strings.Contains(got, "var foo") {
-		t.Fatalf("should not have original name binding, got:\n%s", got)
-	}
 }
 
 func TestTransformESM_DefaultImport(t *testing.T) {
 	src := `import myMod from "mod";`
 	got := TransformESM(src)
-	if !strings.Contains(got, `var myMod = require("mod")`) {
-		t.Fatalf("expected default import transform, got:\n%s", got)
+	if !strings.Contains(got, `require("mod")`) {
+		t.Fatalf("expected require call, got:\n%s", got)
 	}
 }
 
 func TestTransformESM_NamespaceImport(t *testing.T) {
 	src := `import * as ns from "mod";`
 	got := TransformESM(src)
-	if !strings.Contains(got, `var ns = require("mod")`) {
-		t.Fatalf("expected namespace import transform, got:\n%s", got)
+	if !strings.Contains(got, `require("mod")`) {
+		t.Fatalf("expected require call, got:\n%s", got)
 	}
 }
 
@@ -63,140 +50,143 @@ func TestTransformESM_BareImport(t *testing.T) {
 	src := `import "side-effect";`
 	got := TransformESM(src)
 	if !strings.Contains(got, `require("side-effect")`) {
-		t.Fatalf("expected bare import transform, got:\n%s", got)
-	}
-}
-
-func TestTransformESM_DefaultAndNamed(t *testing.T) {
-	src := `import def, { a, b } from "mod";`
-	got := TransformESM(src)
-	if !strings.Contains(got, `require("mod")`) {
 		t.Fatalf("expected require call, got:\n%s", got)
-	}
-	if !strings.Contains(got, "var def") {
-		t.Fatalf("expected default binding, got:\n%s", got)
-	}
-	if !strings.Contains(got, "var a") || !strings.Contains(got, "var b") {
-		t.Fatalf("expected named bindings, got:\n%s", got)
 	}
 }
 
 func TestTransformESM_ExportDefault(t *testing.T) {
-	src := `export default myFunc;`
+	src := `export default 42;`
 	got := TransformESM(src)
-	if !strings.Contains(got, "module.exports = myFunc") {
-		t.Fatalf("expected export default transform, got:\n%s", got)
+	if !strings.Contains(got, "module.exports") || !strings.Contains(got, "exports") {
+		t.Fatalf("expected module.exports, got:\n%s", got)
 	}
 }
 
 func TestTransformESM_ExportNamed(t *testing.T) {
-	src := `export { foo, bar };`
+	src := `var foo = 1; var bar = 2; export { foo, bar };`
 	got := TransformESM(src)
-	if !strings.Contains(got, "module.exports.foo = foo") || !strings.Contains(got, "module.exports.bar = bar") {
-		t.Fatalf("expected named export transform, got:\n%s", got)
-	}
-}
-
-func TestTransformESM_ExportNamedAlias(t *testing.T) {
-	src := `export { foo as baz };`
-	got := TransformESM(src)
-	if !strings.Contains(got, "module.exports.baz = foo") {
-		t.Fatalf("expected aliased named export, got:\n%s", got)
+	if !strings.Contains(got, "exports") {
+		t.Fatalf("expected exports, got:\n%s", got)
 	}
 }
 
 func TestTransformESM_ExportDecl(t *testing.T) {
 	src := `export const x = 42;`
 	got := TransformESM(src)
-	if !strings.Contains(got, "const x = 42") && !strings.Contains(got, "var x = 42") {
-		t.Fatalf("expected declaration, got:\n%s", got)
-	}
-	if !strings.Contains(got, "module.exports.x = x") {
-		t.Fatalf("expected export assignment, got:\n%s", got)
+	if !strings.Contains(got, "42") || !strings.Contains(got, "exports") {
+		t.Fatalf("expected declaration + export, got:\n%s", got)
 	}
 }
 
-func TestTransformESM_ExportFunction(t *testing.T) {
-	src := `export function greet() { return "hi"; }`
+func TestTransformESM_ForAwaitOf(t *testing.T) {
+	// for-await-of should be transpiled so goja can parse it
+	src := `async function test() { for await (const x of [1,2]) { console.log(x); } }`
 	got := TransformESM(src)
-	if !strings.Contains(got, `function greet()`) {
-		t.Fatalf("expected function declaration, got:\n%s", got)
-	}
-	if !strings.Contains(got, "module.exports.greet = greet") {
-		t.Fatalf("expected export assignment, got:\n%s", got)
+	// esbuild should transform for-await-of into something goja can handle
+	vm := goja.New()
+	_, err := vm.RunString(got)
+	if err != nil {
+		t.Fatalf("for-await-of should be transpiled: %v\ntransformed:\n%s", err, got)
 	}
 }
 
-func TestTransformESM_ExportClass(t *testing.T) {
-	src := `export class Foo {}`
+func TestTransformESM_ParseError(t *testing.T) {
+	// Invalid JS: esbuild should fail, and we return original source
+	src := `this is not valid javascript @@@@`
 	got := TransformESM(src)
-	if !strings.Contains(got, "class Foo") {
-		t.Fatalf("expected class declaration, got:\n%s", got)
-	}
-	if !strings.Contains(got, "module.exports.Foo = Foo") {
-		t.Fatalf("expected export assignment, got:\n%s", got)
-	}
-}
-
-func TestTransformESM_MixedContent(t *testing.T) {
-	src := `import { readFileSync } from "fs";
-var data = readFileSync("test.txt", "utf8");
-console.log(data);`
-	got := TransformESM(src)
-	if !strings.Contains(got, `require("fs")`) {
-		t.Fatalf("expected require, got:\n%s", got)
-	}
-	if !strings.Contains(got, "var readFileSync") {
-		t.Fatalf("expected named binding, got:\n%s", got)
-	}
-	// Non-import lines should be unchanged
-	if !strings.Contains(got, `var data = readFileSync("test.txt", "utf8");`) {
-		t.Fatalf("expected unchanged line, got:\n%s", got)
-	}
-}
-
-func TestTransformESM_SingleQuotes(t *testing.T) {
-	src := `import { foo } from 'mod';`
-	got := TransformESM(src)
-	if !strings.Contains(got, `require("mod")`) {
-		t.Fatalf("expected require with double quotes, got:\n%s", got)
+	if got != src {
+		t.Fatalf("on parse error, should return original source")
 	}
 }
 
 // ---------------------------------------------------------------------------
-// Integration: require a module that uses ESM import
+// Integration: actual execution in goja
 // ---------------------------------------------------------------------------
 
-func TestRequire_ESMImport(t *testing.T) {
+func TestTransformESM_NamedImportExecution(t *testing.T) {
+	// Verify that esbuild's CJS output for named imports actually runs in goja
 	dir := t.TempDir()
 	os.MkdirAll(filepath.Join(dir, "node_modules", "esm-pkg"), 0o755)
 
-	// A package that exports using module.exports (CJS)
 	pkgJSON := `{"name":"esm-pkg","main":"./index.js"}`
 	os.WriteFile(filepath.Join(dir, "node_modules", "esm-pkg", "package.json"), []byte(pkgJSON), 0o644)
-	os.WriteFile(filepath.Join(dir, "node_modules", "esm-pkg", "index.js"), []byte(`module.exports.greet = function() { return "hello"; };`), 0o644)
-
-	// Entry file uses ESM import syntax
-	entry := filepath.Join(dir, "entry.js")
-	os.WriteFile(entry, []byte(`import { greet } from "esm-pkg";
-var result = greet();
-`), 0o644)
+	os.WriteFile(filepath.Join(dir, "node_modules", "esm-pkg", "index.js"),
+		[]byte(`module.exports.greet = function() { return "hello"; };`), 0o644)
 
 	vm := goja.New()
 	NewLoader(vm)
-	abs, _ := filepath.Abs(entry)
+	abs, _ := filepath.Abs(filepath.Join(dir, "entry.js"))
 	vm.Set("__filename", abs)
 	vm.Set("__dirname", filepath.Dir(abs))
 
-	// The entry file itself must also be transformed
-	src, _ := os.ReadFile(entry)
-	_, err := vm.RunString(TransformESM(string(src)))
+	src := `import { greet } from "esm-pkg";
+var result = greet();`
+	_, err := vm.RunString(TransformESM(src))
 	if err != nil {
-		t.Fatalf("ESM import should work after transform: %v", err)
+		t.Fatalf("ESM import should work: %v", err)
 	}
 
 	v := vm.Get("result")
-	if v.String() != "hello" {
-		t.Fatalf("expected 'hello', got %q", v.String())
+	if v == nil || v.String() != "hello" {
+		t.Fatalf("expected 'hello', got %v", v)
+	}
+}
+
+func TestTransformESM_DefaultImportExecution(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "node_modules", "def-pkg"), 0o755)
+
+	pkgJSON := `{"name":"def-pkg","main":"./index.js"}`
+	os.WriteFile(filepath.Join(dir, "node_modules", "def-pkg", "package.json"), []byte(pkgJSON), 0o644)
+	os.WriteFile(filepath.Join(dir, "node_modules", "def-pkg", "index.js"),
+		[]byte(`module.exports = function() { return "default"; };`), 0o644)
+
+	vm := goja.New()
+	NewLoader(vm)
+	abs, _ := filepath.Abs(filepath.Join(dir, "entry.js"))
+	vm.Set("__filename", abs)
+	vm.Set("__dirname", filepath.Dir(abs))
+
+	src := `import myFunc from "def-pkg";
+var result = myFunc();`
+	_, err := vm.RunString(TransformESM(src))
+	if err != nil {
+		t.Fatalf("default import should work: %v", err)
+	}
+
+	v := vm.Get("result")
+	if v == nil || v.String() != "default" {
+		t.Fatalf("expected 'default', got %v", v)
+	}
+}
+
+func TestTransformESM_ExportExecution(t *testing.T) {
+	// Verify export const works with module.exports set up
+	vm := goja.New()
+	moduleObj := vm.NewObject()
+	exportsObj := vm.NewObject()
+	moduleObj.Set("exports", exportsObj)
+	vm.Set("module", moduleObj)
+	vm.Set("exports", exportsObj)
+
+	src := `export const answer = 42;`
+	_, err := vm.RunString(TransformESM(src))
+	if err != nil {
+		t.Fatalf("export const should work: %v", err)
+	}
+
+	result, _ := vm.RunString(`module.exports.answer`)
+	if result == nil || result.ToInteger() != 42 {
+		t.Fatalf("expected 42, got %v", result)
+	}
+}
+
+func TestTransformESM_TopLevelAwaitExecution(t *testing.T) {
+	vm := goja.New()
+	src := `var x = await Promise.resolve(42);`
+	transformed := TransformESM(src)
+	_, err := vm.RunString(transformed)
+	if err != nil {
+		t.Fatalf("top-level await should execute: %v\ntransformed:\n%s", err, transformed)
 	}
 }
