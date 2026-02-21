@@ -8,6 +8,8 @@ import (
 
 	"github.com/chzyer/readline"
 	"github.com/robertkrimen/otto"
+
+	"gode/compat"
 )
 
 // Run starts an interactive REPL, reading JS expressions from the
@@ -47,7 +49,7 @@ func Run(vm *otto.Otto) {
 			continue
 		}
 
-		value, err := vm.Run(line)
+		value, err := vm.Run(compat.Transform(line))
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%v\n", err)
 			continue

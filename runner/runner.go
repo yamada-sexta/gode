@@ -9,6 +9,8 @@ import (
 
 	"github.com/robertkrimen/otto"
 	"github.com/robertkrimen/otto/parser"
+
+	"gode/compat"
 )
 
 // RunFile reads path and executes its contents in vm.
@@ -18,7 +20,7 @@ func RunFile(vm *otto.Otto, path string) {
 		fmt.Fprintf(os.Stderr, "gode: %v\n", err)
 		os.Exit(1)
 	}
-	if _, err := vm.Run(string(src)); err != nil {
+	if _, err := vm.Run(compat.Transform(string(src))); err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)
 	}
@@ -31,7 +33,7 @@ func RunStdin(vm *otto.Otto) {
 		fmt.Fprintf(os.Stderr, "gode: error reading stdin: %v\n", err)
 		os.Exit(1)
 	}
-	if _, err := vm.Run(string(src)); err != nil {
+	if _, err := vm.Run(compat.Transform(string(src))); err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)
 	}
@@ -39,7 +41,7 @@ func RunStdin(vm *otto.Otto) {
 
 // RunEval executes script as JavaScript in vm.
 func RunEval(vm *otto.Otto, script string) {
-	if _, err := vm.Run(script); err != nil {
+	if _, err := vm.Run(compat.Transform(script)); err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)
 	}
@@ -47,7 +49,7 @@ func RunEval(vm *otto.Otto, script string) {
 
 // RunPrint executes script and prints the resulting value.
 func RunPrint(vm *otto.Otto, script string) {
-	value, err := vm.Run(script)
+	value, err := vm.Run(compat.Transform(script))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)
