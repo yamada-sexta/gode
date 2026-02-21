@@ -1,3 +1,3 @@
 # Gode
 
-A node-like JS runtime written in GO.
+A node-like JS runtime written in GO (not yet functional).
