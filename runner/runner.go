@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
 	"github.com/robertkrimen/otto"
 	"github.com/robertkrimen/otto/parser"
@@ -20,6 +21,9 @@ func RunFile(vm *otto.Otto, path string) {
 		fmt.Fprintf(os.Stderr, "gode: %v\n", err)
 		os.Exit(1)
 	}
+	abs, _ := filepath.Abs(path)
+	vm.Set("__filename", abs)
+	vm.Set("__dirname", filepath.Dir(abs))
 	if _, err := vm.Run(compat.Transform(string(src))); err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)
