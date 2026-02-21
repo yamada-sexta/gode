@@ -584,3 +584,82 @@ func TestFS_ErrorProperties(t *testing.T) {
 		}
 	`)
 }
+
+// ---------------------------------------------------------------------------
+// Source Map Loading (module require path)
+// ---------------------------------------------------------------------------
+
+func TestRequire_SourceMapMissing(t *testing.T) {
+	// Simulates the ecmascript-version-detector bug: a node_modules
+	// package whose JS has a sourceMappingURL pointing to a .map file
+	// that doesn't exist. Should load without error.
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "node_modules", "smap-test"), 0o755)
+
+	pkgJSON := `{"name":"smap-test","main":"./lib/index.js"}`
+	os.WriteFile(filepath.Join(dir, "node_modules", "smap-test", "package.json"), []byte(pkgJSON), 0o644)
+
+	os.MkdirAll(filepath.Join(dir, "node_modules", "smap-test", "lib"), 0o755)
+	js := `module.exports = { value: 99 };
+//# sourceMappingURL=index.js.map
+`
+	os.WriteFile(filepath.Join(dir, "node_modules", "smap-test", "lib", "index.js"), []byte(js), 0o644)
+
+	// Create the entry script that requires the package.
+	entry := filepath.Join(dir, "entry.js")
+	os.WriteFile(entry, []byte(`var m = require('smap-test'); var smapVal = m.value;`), 0o644)
+
+	vm := goja.New()
+	NewLoader(vm)
+
+	// Set __dirname so require resolves from our temp dir.
+	abs, _ := filepath.Abs(entry)
+	vm.Set("__filename", abs)
+	vm.Set("__dirname", filepath.Dir(abs))
+
+	_, err := vm.RunString(`var m = require('smap-test'); var smapVal = m.value;`)
+	if err != nil {
+		t.Fatalf("require with missing .map should not error: %v", err)
+	}
+
+	v := vm.Get("smapVal")
+	if v.ToInteger() != 99 {
+		t.Fatalf("expected 99, got %v", v)
+	}
+}
+
+func TestRequire_SourceMapPresent(t *testing.T) {
+	// Same as above but the .map file exists — should also work fine.
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "node_modules", "smap-ok", "lib"), 0o755)
+
+	pkgJSON := `{"name":"smap-ok","main":"./lib/index.js"}`
+	os.WriteFile(filepath.Join(dir, "node_modules", "smap-ok", "package.json"), []byte(pkgJSON), 0o644)
+
+	js := `module.exports = { ok: true };
+//# sourceMappingURL=index.js.map
+`
+	os.WriteFile(filepath.Join(dir, "node_modules", "smap-ok", "lib", "index.js"), []byte(js), 0o644)
+
+	mapContent := `{"version":3,"sources":["index.ts"],"names":[],"mappings":"AAAA","file":"index.js"}`
+	os.WriteFile(filepath.Join(dir, "node_modules", "smap-ok", "lib", "index.js.map"), []byte(mapContent), 0o644)
+
+	entry := filepath.Join(dir, "entry.js")
+	os.WriteFile(entry, []byte(`var m = require('smap-ok');`), 0o644)
+
+	vm := goja.New()
+	NewLoader(vm)
+	abs, _ := filepath.Abs(entry)
+	vm.Set("__filename", abs)
+	vm.Set("__dirname", filepath.Dir(abs))
+
+	_, err := vm.RunString(`var m = require('smap-ok'); var smapOk = m.ok;`)
+	if err != nil {
+		t.Fatalf("require with present .map should not error: %v", err)
+	}
+
+	v := vm.Get("smapOk")
+	if !v.ToBoolean() {
+		t.Fatalf("expected true, got %v", v)
+	}
+}
