@@ -6,7 +6,7 @@ import (
 	"runtime/debug"
 	"strings"
 
-	"github.com/robertkrimen/otto"
+	"github.com/dop251/goja"
 
 	"gode/envfile"
 	"gode/modules"
@@ -73,7 +73,7 @@ func main() {
 	}
 
 	// From here on we need a VM.
-	vm := otto.New()
+	vm := goja.New()
 	process.Setup(vm, getVersion(), opts.Script, opts.ScriptArgs)
 	modules.NewLoader(vm)
 
@@ -247,6 +247,6 @@ Options:
 Environment variables:
   GODE_HISTORY                    path to the REPL history file
 
-Documentation: https://github.com/robertkrimen/otto
+Documentation: https://github.com/dop251/goja
 `)
 }

@@ -1,4 +1,4 @@
-// Package process registers the global `process` object on an otto VM,
+// Package process registers the global `process` object on a goja VM,
 // providing process.env, process.argv, process.exit, process.cwd, and
 // process.version — similar to the Node.js process global.
 package process
@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/robertkrimen/otto"
+	"github.com/dop251/goja"
 )
 
 // Setup creates the `process` global on vm.
@@ -15,8 +15,9 @@ import (
 //   - version  — the string returned by process.version
 //   - script   — path to the JS file being run (empty for REPL/eval)
 //   - args     — extra arguments passed after the script
-func Setup(vm *otto.Otto, version, script string, args []string) {
-	proc, _ := vm.Object(`process = {}`)
+func Setup(vm *goja.Runtime, version, script string, args []string) {
+	proc := vm.NewObject()
+	vm.Set("process", proc)
 
 	// process.version
 	proc.Set("version", version)
@@ -30,21 +31,21 @@ func Setup(vm *otto.Otto, version, script string, args []string) {
 	proc.Set("argv", argv)
 
 	// process.exit(code)
-	proc.Set("exit", func(call otto.FunctionCall) otto.Value {
-		code, _ := call.Argument(0).ToInteger()
+	proc.Set("exit", func(call goja.FunctionCall) goja.Value {
+		code := call.Argument(0).ToInteger()
 		os.Exit(int(code))
-		return otto.UndefinedValue()
+		return goja.Undefined()
 	})
 
 	// process.cwd()
-	proc.Set("cwd", func(call otto.FunctionCall) otto.Value {
+	proc.Set("cwd", func(call goja.FunctionCall) goja.Value {
 		cwd, _ := os.Getwd()
-		result, _ := vm.ToValue(cwd)
-		return result
+		return vm.ToValue(cwd)
 	})
 
 	// process.env — snapshot of the current environment
-	envObj, _ := vm.Object(`process.env = {}`)
+	envObj := vm.NewObject()
+	proc.Set("env", envObj)
 	for _, e := range os.Environ() {
 		if k, v, ok := strings.Cut(e, "="); ok {
 			envObj.Set(k, v)

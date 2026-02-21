@@ -1,8 +1,7 @@
 // Package modules provides a require()-based module loading system
 // for the gode JavaScript runtime. Built-in modules are embedded at
 // compile time and evaluated lazily on first require(). User modules
-// are resolved following Node.js conventions: relative paths, then
-// node_modules directory walking.
+// are resolved following Node.js conventions.
 package modules
 
 import (
@@ -13,9 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"gode/compat"
-
-	"github.com/robertkrimen/otto"
+	"github.com/dop251/goja"
 )
 
 //go:embed assert.js
@@ -36,18 +33,18 @@ var zlibSource string
 // Loader manages built-in module registration, caching, and the
 // require() function installed on the VM.
 type Loader struct {
-	vm       *otto.Otto
+	vm       *goja.Runtime
 	registry map[string]string     // name → JS source (built-ins)
-	cache    map[string]otto.Value // resolved path → cached exports
+	cache    map[string]goja.Value // resolved path → cached exports
 }
 
 // NewLoader creates a Loader, registers all built-in modules, and
 // installs require() on vm.
-func NewLoader(vm *otto.Otto) *Loader {
+func NewLoader(vm *goja.Runtime) *Loader {
 	l := &Loader{
 		vm:       vm,
 		registry: make(map[string]string),
-		cache:    make(map[string]otto.Value),
+		cache:    make(map[string]goja.Value),
 	}
 
 	// Install native helpers needed by JS modules.
@@ -77,17 +74,22 @@ func (l *Loader) Register(name, source string) {
 	l.registry[name] = source
 }
 
-func (l *Loader) require(call otto.FunctionCall) otto.Value {
+func (l *Loader) throwError(msg string) {
+	o, _ := l.vm.RunString(fmt.Sprintf(`new Error(%q)`, msg))
+	panic(o)
+}
+
+func (l *Loader) require(call goja.FunctionCall) goja.Value {
 	name := call.Argument(0).String()
 
-	// 1. Built-in modules (check cache, then registry).
+	// 1. Built-in modules.
 	if val, ok := l.cache[name]; ok {
 		return val
 	}
 	if src, ok := l.registry[name]; ok {
-		val, err := l.vm.Run(src)
+		val, err := l.vm.RunString(src)
 		if err != nil {
-			panic(l.vm.MakeCustomError("Error", fmt.Sprintf("Error loading module '%s': %v", name, err)))
+			l.throwError(fmt.Sprintf("Error loading module '%s': %v", name, err))
 		}
 		l.cache[name] = val
 		return val
@@ -97,115 +99,36 @@ func (l *Loader) require(call otto.FunctionCall) otto.Value {
 	baseDir := l.callerDir()
 	resolved := l.resolveModule(name, baseDir)
 	if resolved == "" {
-		panic(l.vm.MakeCustomError("Error", fmt.Sprintf("Cannot find module '%s'", name)))
+		l.throwError(fmt.Sprintf("Cannot find module '%s'", name))
 	}
 
-	// Check file cache by absolute path.
 	if val, ok := l.cache[resolved]; ok {
 		return val
 	}
 
-	// 3. Load, wrap, and execute.
-	src, err := os.ReadFile(resolved)
-	if err != nil {
-		panic(l.vm.MakeCustomError("Error", fmt.Sprintf("Cannot read module '%s': %v", resolved, err)))
-	}
-
-	dir := filepath.Dir(resolved)
-
-	// Create a per-module require that resolves relative to this module's dir.
-	moduleRequire := func(call otto.FunctionCall) otto.Value {
-		modName := call.Argument(0).String()
-
-		// Built-in modules first.
-		if val, ok := l.cache[modName]; ok {
-			return val
-		}
-		if src, ok := l.registry[modName]; ok {
-			if val, ok := l.cache[modName]; ok {
-				return val
-			}
-			val, err := l.vm.Run(src)
-			if err != nil {
-				panic(l.vm.MakeCustomError("Error", fmt.Sprintf("Error loading module '%s': %v", modName, err)))
-			}
-			l.cache[modName] = val
-			return val
-		}
-
-		// File-based resolution from this module's directory.
-		resolved := l.resolveModule(modName, dir)
-		if resolved == "" {
-			panic(l.vm.MakeCustomError("Error", fmt.Sprintf("Cannot find module '%s'", modName)))
-		}
-		if val, ok := l.cache[resolved]; ok {
-			return val
-		}
-		return l.loadFileModule(modName, resolved)
-	}
-
-	// Set up module object.
-	moduleObj, _ := l.vm.Object(`({exports: {}})`)
-	exportsVal, _ := moduleObj.Get("exports")
-
-	// Save and restore all module-scoped globals.
-	oldRequire, _ := l.vm.Get("require")
-	oldFilename, _ := l.vm.Get("__filename")
-	oldDirname, _ := l.vm.Get("__dirname")
-	oldModule, _ := l.vm.Get("module")
-	oldExports, _ := l.vm.Get("exports")
-
-	l.vm.Set("require", moduleRequire)
-	l.vm.Set("__filename", resolved)
-	l.vm.Set("__dirname", dir)
-	l.vm.Set("module", moduleObj)
-	l.vm.Set("exports", exportsVal)
-
-	_, err = l.vm.Run(compat.Transform(string(src)))
-
-	// Capture module.exports BEFORE restoring globals.
-	result, _ := l.vm.Run(`module.exports`)
-
-	// Restore all globals.
-	l.vm.Set("require", oldRequire)
-	l.vm.Set("__filename", oldFilename)
-	l.vm.Set("__dirname", oldDirname)
-	l.vm.Set("module", oldModule)
-	l.vm.Set("exports", oldExports)
-
-	if err != nil {
-		panic(l.vm.MakeCustomError("Error", fmt.Sprintf("Error loading module '%s': %v", name, err)))
-	}
-
-	l.cache[resolved] = result
-	return result
+	return l.loadFileModule(name, resolved)
 }
 
 // loadFileModule reads, wraps, and executes a file module.
-// This is the shared implementation used by both the top-level and
-// per-module require functions.
-func (l *Loader) loadFileModule(name, resolved string) otto.Value {
+func (l *Loader) loadFileModule(name, resolved string) goja.Value {
 	src, err := os.ReadFile(resolved)
 	if err != nil {
-		panic(l.vm.MakeCustomError("Error", fmt.Sprintf("Cannot read module '%s': %v", resolved, err)))
+		l.throwError(fmt.Sprintf("Cannot read module '%s': %v", resolved, err))
 	}
 
 	dir := filepath.Dir(resolved)
 
-	// Create a per-module require for this module.
-	moduleRequire := func(call otto.FunctionCall) otto.Value {
+	// Create a per-module require that resolves relative to this dir.
+	moduleRequire := func(call goja.FunctionCall) goja.Value {
 		modName := call.Argument(0).String()
 
 		if val, ok := l.cache[modName]; ok {
 			return val
 		}
 		if src, ok := l.registry[modName]; ok {
-			if val, ok := l.cache[modName]; ok {
-				return val
-			}
-			val, err := l.vm.Run(src)
+			val, err := l.vm.RunString(src)
 			if err != nil {
-				panic(l.vm.MakeCustomError("Error", fmt.Sprintf("Error loading module '%s': %v", modName, err)))
+				l.throwError(fmt.Sprintf("Error loading module '%s': %v", modName, err))
 			}
 			l.cache[modName] = val
 			return val
@@ -213,7 +136,7 @@ func (l *Loader) loadFileModule(name, resolved string) otto.Value {
 
 		resolved := l.resolveModule(modName, dir)
 		if resolved == "" {
-			panic(l.vm.MakeCustomError("Error", fmt.Sprintf("Cannot find module '%s'", modName)))
+			l.throwError(fmt.Sprintf("Cannot find module '%s'", modName))
 		}
 		if val, ok := l.cache[resolved]; ok {
 			return val
@@ -221,26 +144,30 @@ func (l *Loader) loadFileModule(name, resolved string) otto.Value {
 		return l.loadFileModule(modName, resolved)
 	}
 
-	moduleObj, _ := l.vm.Object(`({exports: {}})`)
-	exportsVal, _ := moduleObj.Get("exports")
+	// Save current module-scoped globals.
+	oldRequire := l.vm.Get("require")
+	oldFilename := l.vm.Get("__filename")
+	oldDirname := l.vm.Get("__dirname")
+	oldModule := l.vm.Get("module")
+	oldExports := l.vm.Get("exports")
 
-	oldRequire, _ := l.vm.Get("require")
-	oldFilename, _ := l.vm.Get("__filename")
-	oldDirname, _ := l.vm.Get("__dirname")
-	oldModule, _ := l.vm.Get("module")
-	oldExports, _ := l.vm.Get("exports")
+	// Set up module context.
+	moduleObj := l.vm.NewObject()
+	exportsObj := l.vm.NewObject()
+	moduleObj.Set("exports", exportsObj)
 
 	l.vm.Set("require", moduleRequire)
 	l.vm.Set("__filename", resolved)
 	l.vm.Set("__dirname", dir)
 	l.vm.Set("module", moduleObj)
-	l.vm.Set("exports", exportsVal)
+	l.vm.Set("exports", exportsObj)
 
-	_, err = l.vm.Run(compat.Transform(string(src)))
+	_, err = l.vm.RunString(string(src))
 
 	// Capture module.exports BEFORE restoring globals.
-	result, _ := l.vm.Run(`module.exports`)
+	result, _ := l.vm.RunString(`module.exports`)
 
+	// Restore globals.
 	l.vm.Set("require", oldRequire)
 	l.vm.Set("__filename", oldFilename)
 	l.vm.Set("__dirname", oldDirname)
@@ -248,7 +175,7 @@ func (l *Loader) loadFileModule(name, resolved string) otto.Value {
 	l.vm.Set("exports", oldExports)
 
 	if err != nil {
-		panic(l.vm.MakeCustomError("Error", fmt.Sprintf("Error loading module '%s': %v", name, err)))
+		l.throwError(fmt.Sprintf("Error loading module '%s': %v", name, err))
 	}
 
 	l.cache[resolved] = result
@@ -256,17 +183,15 @@ func (l *Loader) loadFileModule(name, resolved string) otto.Value {
 }
 
 // callerDir returns the base directory for module resolution.
-// Uses __dirname if set (inside a module), otherwise process.cwd().
 func (l *Loader) callerDir() string {
-	// Check __dirname first (set when inside a loaded module/script).
-	if val, err := l.vm.Get("__dirname"); err == nil && val.IsString() {
-		s, _ := val.ToString()
+	v := l.vm.Get("__dirname")
+	if v != nil && !goja.IsUndefined(v) && !goja.IsNull(v) {
+		s := v.String()
 		if s != "" && s != "undefined" {
 			return s
 		}
 	}
-	// Fall back to process.cwd().
-	val, err := l.vm.Run(`process.cwd()`)
+	val, err := l.vm.RunString(`process.cwd()`)
 	if err != nil {
 		cwd, _ := os.Getwd()
 		return cwd
@@ -276,7 +201,6 @@ func (l *Loader) callerDir() string {
 
 // resolveModule implements Node.js-style module resolution.
 func (l *Loader) resolveModule(name, baseDir string) string {
-	// Relative or absolute paths.
 	if strings.HasPrefix(name, "./") || strings.HasPrefix(name, "../") || strings.HasPrefix(name, "/") {
 		var abs string
 		if filepath.IsAbs(name) {
@@ -293,7 +217,6 @@ func (l *Loader) resolveModule(name, baseDir string) string {
 		return ""
 	}
 
-	// node_modules resolution: walk up from baseDir.
 	dir := baseDir
 	for {
 		candidate := filepath.Join(dir, "node_modules", name)
@@ -305,14 +228,13 @@ func (l *Loader) resolveModule(name, baseDir string) string {
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			break // reached filesystem root
+			break
 		}
 		dir = parent
 	}
 	return ""
 }
 
-// resolveFile tries to load path as a file: exact, .js, .json.
 func (l *Loader) resolveFile(path string) string {
 	candidates := []string{path, path + ".js", path + ".json"}
 	for _, c := range candidates {
@@ -323,14 +245,12 @@ func (l *Loader) resolveFile(path string) string {
 	return ""
 }
 
-// resolveDir tries to load path as a directory: package.json "main", index.js.
 func (l *Loader) resolveDir(path string) string {
 	info, err := os.Stat(path)
 	if err != nil || !info.IsDir() {
 		return ""
 	}
 
-	// Try package.json "main" field.
 	pkgPath := filepath.Join(path, "package.json")
 	if data, err := os.ReadFile(pkgPath); err == nil {
 		var pkg struct {
@@ -341,18 +261,15 @@ func (l *Loader) resolveDir(path string) string {
 			if r := l.resolveFile(main); r != "" {
 				return r
 			}
-			// main might point to a directory itself.
 			if r := l.resolveDir(main); r != "" {
 				return r
 			}
 		}
 	}
 
-	// Try index.js.
 	idx := filepath.Join(path, "index.js")
 	if info, err := os.Stat(idx); err == nil && !info.IsDir() {
 		return idx
 	}
-
 	return ""
 }

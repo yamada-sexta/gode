@@ -1,7 +1,5 @@
-// Package repl implements an interactive read-eval-print loop for otto,
-// modelled after the Node.js REPL. It supports dot-commands (.help,
-// .break, .clear, .editor, .load, .save, .exit), multi-line input for
-// incomplete expressions, and Ctrl-C / Ctrl-D handling.
+// Package repl implements an interactive read-eval-print loop for goja,
+// modelled after the Node.js REPL.
 package repl
 
 import (
@@ -11,10 +9,8 @@ import (
 	"strings"
 
 	"github.com/chzyer/readline"
-	"github.com/robertkrimen/otto"
-	"github.com/robertkrimen/otto/parser"
-
-	"gode/compat"
+	"github.com/dop251/goja"
+	"github.com/dop251/goja/parser"
 )
 
 const (
@@ -22,9 +18,8 @@ const (
 	promptContinue = "... "
 )
 
-// Run starts an interactive REPL, reading JS expressions from the
-// terminal and printing their results.
-func Run(vm *otto.Otto, version string) {
+// Run starts an interactive REPL.
+func Run(vm *goja.Runtime, version string) {
 	rl, err := readline.NewEx(&readline.Config{
 		Prompt:          promptNormal,
 		HistoryFile:     os.TempDir() + "/gode_history",
@@ -39,21 +34,19 @@ func Run(vm *otto.Otto, version string) {
 	fmt.Printf("Welcome to gode %s.\n", version)
 	fmt.Println(`Type ".help" for more information.`)
 
-	var history []string // all successfully evaluated lines for .save
-	var buffer string    // accumulator for multi-line input
+	var history []string
+	var buffer string
 
 	for {
 		line, err := rl.Readline()
 		if err != nil {
 			if err == readline.ErrInterrupt {
-				// Ctrl-C: if we have a partial expression, discard it.
 				if buffer != "" {
 					buffer = ""
 					rl.SetPrompt(promptNormal)
 					fmt.Println()
 					continue
 				}
-				// Otherwise print hint.
 				fmt.Println()
 				fmt.Println(`(To exit, press Ctrl+D or type .exit)`)
 				continue
@@ -66,7 +59,7 @@ func Run(vm *otto.Otto, version string) {
 			break
 		}
 
-		// --- Dot-commands (only when not in multi-line mode) ---
+		// --- Dot-commands ---
 		if buffer == "" && len(line) > 0 && line[0] == '.' {
 			cmd, arg := parseDotCommand(line)
 			switch cmd {
@@ -106,45 +99,39 @@ func Run(vm *otto.Otto, version string) {
 			continue
 		}
 
-		// Accumulate input.
 		if buffer != "" {
 			buffer += "\n" + line
 		} else {
 			buffer = line
 		}
 
-		// Check if the expression looks incomplete.
 		if isIncomplete(buffer) {
 			rl.SetPrompt(promptContinue)
 			continue
 		}
 
-		// Evaluate the complete expression.
-		src := compat.Transform(buffer)
+		src := buffer
 		history = append(history, buffer)
 		buffer = ""
 		rl.SetPrompt(promptNormal)
 
-		value, err := vm.Run(src)
+		value, err := vm.RunString(src)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%v\n", err)
 			continue
 		}
 
-		if !value.IsUndefined() {
+		if !goja.IsUndefined(value) {
 			fmt.Println(value)
 		}
 	}
 }
 
-// isIncomplete returns true if src appears to be a partial expression
-// that needs more input (unclosed braces, parens, brackets, or strings).
 func isIncomplete(src string) bool {
-	_, err := parser.ParseFile(nil, "", compat.Transform(src), 0)
+	_, err := parser.ParseFile(nil, "", src, 0)
 	if err == nil {
 		return false
 	}
-	// otto's parser returns "Unexpected end of input" for incomplete code.
 	msg := err.Error()
 	return strings.Contains(msg, "Unexpected end of input") ||
 		strings.Contains(msg, "unexpected end")
@@ -171,7 +158,7 @@ func printHelp() {
 	fmt.Println(`Press Ctrl+C to abort current expression, Ctrl+D to exit the REPL`)
 }
 
-func runEditorMode(rl *readline.Instance, vm *otto.Otto, history *[]string) {
+func runEditorMode(rl *readline.Instance, vm *goja.Runtime, history *[]string) {
 	fmt.Println("// Entering editor mode (Ctrl+D to finish, Ctrl+C to cancel)")
 	var lines []string
 	rl.SetPrompt("")
@@ -179,11 +166,9 @@ func runEditorMode(rl *readline.Instance, vm *otto.Otto, history *[]string) {
 		line, err := rl.Readline()
 		if err != nil {
 			if err == io.EOF {
-				// Ctrl+D: evaluate accumulated code.
 				break
 			}
 			if err == readline.ErrInterrupt {
-				// Ctrl+C: cancel editor mode.
 				fmt.Println()
 				rl.SetPrompt(promptNormal)
 				return
@@ -199,17 +184,17 @@ func runEditorMode(rl *readline.Instance, vm *otto.Otto, history *[]string) {
 
 	src := strings.Join(lines, "\n")
 	*history = append(*history, src)
-	value, err := vm.Run(compat.Transform(src))
+	value, err := vm.RunString(src)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		return
 	}
-	if !value.IsUndefined() {
+	if !goja.IsUndefined(value) {
 		fmt.Println(value)
 	}
 }
 
-func loadFile(vm *otto.Otto, path string, history *[]string) {
+func loadFile(vm *goja.Runtime, path string, history *[]string) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error loading file: %v\n", err)
@@ -218,12 +203,12 @@ func loadFile(vm *otto.Otto, path string, history *[]string) {
 	src := string(data)
 	*history = append(*history, src)
 	fmt.Printf("// Loading %s\n", path)
-	value, err := vm.Run(compat.Transform(src))
+	value, err := vm.RunString(src)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		return
 	}
-	if !value.IsUndefined() {
+	if !goja.IsUndefined(value) {
 		fmt.Println(value)
 	}
 }

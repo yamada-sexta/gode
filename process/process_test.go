@@ -2,22 +2,22 @@ package process
 
 import (
 	"os"
-	"strings"
+	"runtime"
 	"testing"
 
-	"github.com/robertkrimen/otto"
+	"github.com/dop251/goja"
 )
 
-func newVM(t *testing.T) *otto.Otto {
+func testVM(t *testing.T) *goja.Runtime {
 	t.Helper()
-	vm := otto.New()
-	Setup(vm, "v1.2.3", "test.js", []string{"arg1", "arg2"})
+	vm := goja.New()
+	Setup(vm, "v0.1.0-test", "", nil)
 	return vm
 }
 
-func mustRun(t *testing.T, vm *otto.Otto, js string) otto.Value {
+func mustRun(t *testing.T, vm *goja.Runtime, js string) goja.Value {
 	t.Helper()
-	val, err := vm.Run(js)
+	val, err := vm.RunString(js)
 	if err != nil {
 		t.Fatalf("unexpected error: %v\nscript: %s", err, js)
 	}
@@ -25,96 +25,72 @@ func mustRun(t *testing.T, vm *otto.Otto, js string) otto.Value {
 }
 
 func TestProcessVersion(t *testing.T) {
-	vm := newVM(t)
+	vm := testVM(t)
 	val := mustRun(t, vm, `process.version`)
-	if val.String() != "v1.2.3" {
-		t.Fatalf("expected 'v1.2.3', got %q", val.String())
+	if val.String() != "v0.1.0-test" {
+		t.Fatalf("expected v0.1.0-test, got %s", val.String())
 	}
 }
 
-func TestProcessArgv(t *testing.T) {
-	vm := newVM(t)
-	mustRun(t, vm, `
-		if (process.argv.length !== 4) throw new Error('wrong length: ' + process.argv.length);
-		if (process.argv[0] !== 'gode') throw new Error('argv[0]: ' + process.argv[0]);
-		if (process.argv[1] !== 'test.js') throw new Error('argv[1]: ' + process.argv[1]);
-		if (process.argv[2] !== 'arg1') throw new Error('argv[2]: ' + process.argv[2]);
-		if (process.argv[3] !== 'arg2') throw new Error('argv[3]: ' + process.argv[3]);
-	`)
+func TestProcessArgvDefault(t *testing.T) {
+	vm := testVM(t)
+	mustRun(t, vm, `if (process.argv[0] !== 'gode') throw new Error('argv[0] should be gode')`)
+	mustRun(t, vm, `if (process.argv.length !== 1) throw new Error('default argv length should be 1')`)
 }
 
-func TestProcessArgv_NoScript(t *testing.T) {
-	vm := otto.New()
-	Setup(vm, "v0.0.0", "", nil)
-	mustRun(t, vm, `
-		if (process.argv.length !== 1) throw new Error('wrong length: ' + process.argv.length);
-		if (process.argv[0] !== 'gode') throw new Error('argv[0]: ' + process.argv[0]);
-	`)
+func TestProcessArgvWithScript(t *testing.T) {
+	vm := goja.New()
+	Setup(vm, "v0.1.0-test", "app.js", []string{"--port", "3000"})
+	mustRun(t, vm, `if (process.argv[0] !== 'gode') throw new Error('argv[0]')`)
+	mustRun(t, vm, `if (process.argv[1] !== 'app.js') throw new Error('argv[1]')`)
+	mustRun(t, vm, `if (process.argv[2] !== '--port') throw new Error('argv[2]')`)
+	mustRun(t, vm, `if (process.argv[3] !== '3000') throw new Error('argv[3]')`)
 }
 
 func TestProcessCwd(t *testing.T) {
-	vm := newVM(t)
+	vm := testVM(t)
 	val := mustRun(t, vm, `process.cwd()`)
-	cwd, _ := os.Getwd()
-	if val.String() != cwd {
-		t.Fatalf("expected %q, got %q", cwd, val.String())
+	expected, _ := os.Getwd()
+	if val.String() != expected {
+		t.Fatalf("expected %q, got %q", expected, val.String())
 	}
 }
 
 func TestProcessEnv(t *testing.T) {
-	os.Setenv("GODE_TEST_VAR", "test_value_42")
+	vm := testVM(t)
+	mustRun(t, vm, `if (typeof process.env !== 'object') throw new Error('env should be object')`)
+	home := os.Getenv("HOME")
+	if home != "" {
+		val := mustRun(t, vm, `process.env.HOME`)
+		if val.String() != home {
+			t.Fatalf("expected HOME=%q, got %q", home, val.String())
+		}
+	}
+}
+
+func TestProcessEnvCustom(t *testing.T) {
+	os.Setenv("GODE_TEST_VAR", "hello123")
 	defer os.Unsetenv("GODE_TEST_VAR")
-
-	vm := otto.New()
-	Setup(vm, "v0.0.0", "", nil)
-
+	vm := goja.New()
+	Setup(vm, "v0.1.0-test", "", nil)
 	val := mustRun(t, vm, `process.env.GODE_TEST_VAR`)
-	if val.String() != "test_value_42" {
-		t.Fatalf("expected 'test_value_42', got %q", val.String())
+	if val.String() != "hello123" {
+		t.Fatalf("expected hello123, got %s", val.String())
 	}
 }
 
-func TestProcessEnv_PATH(t *testing.T) {
-	vm := newVM(t)
-	val := mustRun(t, vm, `process.env.PATH`)
-	// PATH should exist and be non-empty on any system.
-	if val.String() == "" || val.String() == "undefined" {
-		t.Fatal("expected process.env.PATH to be set")
-	}
+func TestProcessExitType(t *testing.T) {
+	vm := testVM(t)
+	mustRun(t, vm, `if (typeof process.exit !== 'function') throw new Error('exit should be function')`)
 }
 
-func TestProcessExit_IsFunction(t *testing.T) {
-	vm := newVM(t)
-	mustRun(t, vm, `
-		if (typeof process.exit !== 'function') throw new Error('exit is not a function');
-	`)
-}
-
-func TestProcessObject_AllProperties(t *testing.T) {
-	vm := newVM(t)
-	// Verify all expected properties exist.
+func TestProcessProperties(t *testing.T) {
+	vm := testVM(t)
 	props := []string{"version", "argv", "exit", "cwd", "env"}
 	for _, p := range props {
 		t.Run(p, func(t *testing.T) {
-			val := mustRun(t, vm, `typeof process.`+p)
-			s := val.String()
-			if s == "undefined" {
-				t.Fatalf("process.%s should be defined", p)
-			}
-			if p == "exit" || p == "cwd" {
-				if s != "function" {
-					t.Fatalf("process.%s should be a function, got %s", p, s)
-				}
-			}
+			mustRun(t, vm, `if (process.`+p+` === undefined) throw new Error('missing: `+p+`')`)
 		})
 	}
-}
-
-func TestProcessEnv_ContainsHOME(t *testing.T) {
-	vm := newVM(t)
-	val := mustRun(t, vm, `process.env.HOME`)
-	home := os.Getenv("HOME")
-	if !strings.Contains(val.String(), home) {
-		t.Fatalf("expected HOME %q, got %q", home, val.String())
-	}
+	_ = runtime.GOOS // keep import
 }

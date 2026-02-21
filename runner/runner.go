@@ -1,5 +1,4 @@
-// Package runner provides functions that execute JavaScript from
-// various sources: files, stdin, strings, and syntax-only checking.
+// Package runner executes JavaScript from files, stdin, or strings.
 package runner
 
 import (
@@ -8,14 +7,12 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/robertkrimen/otto"
-	"github.com/robertkrimen/otto/parser"
-
-	"gode/compat"
+	"github.com/dop251/goja"
+	"github.com/dop251/goja/parser"
 )
 
 // RunFile reads path and executes its contents in vm.
-func RunFile(vm *otto.Otto, path string) {
+func RunFile(vm *goja.Runtime, path string) {
 	src, err := os.ReadFile(path)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "gode: %v\n", err)
@@ -24,45 +21,44 @@ func RunFile(vm *otto.Otto, path string) {
 	abs, _ := filepath.Abs(path)
 	vm.Set("__filename", abs)
 	vm.Set("__dirname", filepath.Dir(abs))
-	if _, err := vm.Run(compat.Transform(string(src))); err != nil {
+	if _, err := vm.RunString(string(src)); err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)
 	}
 }
 
-// RunStdin reads all of standard input and executes it in vm.
-func RunStdin(vm *otto.Otto) {
+// RunStdin reads all of stdin and executes it.
+func RunStdin(vm *goja.Runtime) {
 	src, err := io.ReadAll(os.Stdin)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "gode: error reading stdin: %v\n", err)
+		fmt.Fprintf(os.Stderr, "gode: %v\n", err)
 		os.Exit(1)
 	}
-	if _, err := vm.Run(compat.Transform(string(src))); err != nil {
+	if _, err := vm.RunString(string(src)); err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)
 	}
 }
 
-// RunEval executes script as JavaScript in vm.
-func RunEval(vm *otto.Otto, script string) {
-	if _, err := vm.Run(compat.Transform(script)); err != nil {
+// RunEval evaluates the given script string.
+func RunEval(vm *goja.Runtime, script string) {
+	if _, err := vm.RunString(script); err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)
 	}
 }
 
-// RunPrint executes script and prints the resulting value.
-func RunPrint(vm *otto.Otto, script string) {
-	value, err := vm.Run(compat.Transform(script))
+// RunPrint evaluates script like RunEval but also prints the result.
+func RunPrint(vm *goja.Runtime, script string) {
+	val, err := vm.RunString(script)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)
 	}
-	fmt.Println(value)
+	fmt.Println(val)
 }
 
-// CheckSyntax parses the file at path without executing it.
-// Exits with code 1 if the file contains syntax errors.
+// CheckSyntax parses path without executing, exiting 1 on error.
 func CheckSyntax(path string) {
 	src, err := os.ReadFile(path)
 	if err != nil {

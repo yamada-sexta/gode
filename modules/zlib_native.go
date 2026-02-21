@@ -9,180 +9,151 @@ import (
 	"io"
 
 	"github.com/andybalholm/brotli"
-	"github.com/robertkrimen/otto"
+	"github.com/dop251/goja"
 )
 
 // setupZlibNative installs a __zlib helper on the VM with Go-backed
-// compression functions. Data is passed as latin1-encoded strings for
-// efficient transfer between JS and Go.
-func setupZlibNative(vm *otto.Otto) {
-	obj, _ := vm.Object(`({})`)
+// compression functions.
+func setupZlibNative(vm *goja.Runtime) {
+	obj := vm.NewObject()
 
-	// --- deflate (zlib header, RFC 1950) ---
-
-	obj.Set("deflateSync", func(call otto.FunctionCall) otto.Value {
-		data := latin1ToBytes(call.Argument(0))
-		level := intArg(call, 1, flate.DefaultCompression)
+	obj.Set("deflateSync", func(call goja.FunctionCall) goja.Value {
+		data := latin1ToBytes(call.Argument(0).String())
+		level := intArgZ(call, 1, flate.DefaultCompression)
 		var buf bytes.Buffer
 		w, err := zlib.NewWriterLevel(&buf, level)
 		if err != nil {
-			panic(vm.MakeCustomError("Error", "zlib deflate: "+err.Error()))
+			panic(vm.ToValue("zlib deflate: " + err.Error()))
 		}
 		w.Write(data)
 		w.Close()
-		v, _ := otto.ToValue(bytesToLatin1(buf.Bytes()))
-		return v
+		return vm.ToValue(bytesToLatin1Str(buf.Bytes()))
 	})
 
-	obj.Set("inflateSync", func(call otto.FunctionCall) otto.Value {
-		data := latin1ToBytes(call.Argument(0))
+	obj.Set("inflateSync", func(call goja.FunctionCall) goja.Value {
+		data := latin1ToBytes(call.Argument(0).String())
 		r, err := zlib.NewReader(bytes.NewReader(data))
 		if err != nil {
-			panic(vm.MakeCustomError("Error", "zlib inflate: "+err.Error()))
+			panic(vm.ToValue("zlib inflate: " + err.Error()))
 		}
 		defer r.Close()
 		out, err := io.ReadAll(r)
 		if err != nil {
-			panic(vm.MakeCustomError("Error", "zlib inflate: "+err.Error()))
+			panic(vm.ToValue("zlib inflate: " + err.Error()))
 		}
-		v, _ := otto.ToValue(bytesToLatin1(out))
-		return v
+		return vm.ToValue(bytesToLatin1Str(out))
 	})
 
-	// --- deflateRaw (no header, RFC 1951) ---
-
-	obj.Set("deflateRawSync", func(call otto.FunctionCall) otto.Value {
-		data := latin1ToBytes(call.Argument(0))
-		level := intArg(call, 1, flate.DefaultCompression)
+	obj.Set("deflateRawSync", func(call goja.FunctionCall) goja.Value {
+		data := latin1ToBytes(call.Argument(0).String())
+		level := intArgZ(call, 1, flate.DefaultCompression)
 		var buf bytes.Buffer
 		w, err := flate.NewWriter(&buf, level)
 		if err != nil {
-			panic(vm.MakeCustomError("Error", "flate deflate: "+err.Error()))
+			panic(vm.ToValue("flate deflate: " + err.Error()))
 		}
 		w.Write(data)
 		w.Close()
-		v, _ := otto.ToValue(bytesToLatin1(buf.Bytes()))
-		return v
+		return vm.ToValue(bytesToLatin1Str(buf.Bytes()))
 	})
 
-	obj.Set("inflateRawSync", func(call otto.FunctionCall) otto.Value {
-		data := latin1ToBytes(call.Argument(0))
+	obj.Set("inflateRawSync", func(call goja.FunctionCall) goja.Value {
+		data := latin1ToBytes(call.Argument(0).String())
 		r := flate.NewReader(bytes.NewReader(data))
 		defer r.Close()
 		out, err := io.ReadAll(r)
 		if err != nil {
-			panic(vm.MakeCustomError("Error", "flate inflate: "+err.Error()))
+			panic(vm.ToValue("flate inflate: " + err.Error()))
 		}
-		v, _ := otto.ToValue(bytesToLatin1(out))
-		return v
+		return vm.ToValue(bytesToLatin1Str(out))
 	})
 
-	// --- gzip (RFC 1952) ---
-
-	obj.Set("gzipSync", func(call otto.FunctionCall) otto.Value {
-		data := latin1ToBytes(call.Argument(0))
-		level := intArg(call, 1, gzip.DefaultCompression)
+	obj.Set("gzipSync", func(call goja.FunctionCall) goja.Value {
+		data := latin1ToBytes(call.Argument(0).String())
+		level := intArgZ(call, 1, gzip.DefaultCompression)
 		var buf bytes.Buffer
 		w, err := gzip.NewWriterLevel(&buf, level)
 		if err != nil {
-			panic(vm.MakeCustomError("Error", "gzip: "+err.Error()))
+			panic(vm.ToValue("gzip: " + err.Error()))
 		}
 		w.Write(data)
 		w.Close()
-		v, _ := otto.ToValue(bytesToLatin1(buf.Bytes()))
-		return v
+		return vm.ToValue(bytesToLatin1Str(buf.Bytes()))
 	})
 
-	obj.Set("gunzipSync", func(call otto.FunctionCall) otto.Value {
-		data := latin1ToBytes(call.Argument(0))
+	obj.Set("gunzipSync", func(call goja.FunctionCall) goja.Value {
+		data := latin1ToBytes(call.Argument(0).String())
 		r, err := gzip.NewReader(bytes.NewReader(data))
 		if err != nil {
-			panic(vm.MakeCustomError("Error", "gunzip: "+err.Error()))
+			panic(vm.ToValue("gunzip: " + err.Error()))
 		}
 		defer r.Close()
 		out, err := io.ReadAll(r)
 		if err != nil {
-			panic(vm.MakeCustomError("Error", "gunzip: "+err.Error()))
+			panic(vm.ToValue("gunzip: " + err.Error()))
 		}
-		v, _ := otto.ToValue(bytesToLatin1(out))
-		return v
+		return vm.ToValue(bytesToLatin1Str(out))
 	})
 
-	// --- unzip (auto-detect gzip or zlib) ---
-
-	obj.Set("unzipSync", func(call otto.FunctionCall) otto.Value {
-		data := latin1ToBytes(call.Argument(0))
-		// Try gzip first (magic: 0x1f 0x8b)
+	obj.Set("unzipSync", func(call goja.FunctionCall) goja.Value {
+		data := latin1ToBytes(call.Argument(0).String())
 		if len(data) >= 2 && data[0] == 0x1f && data[1] == 0x8b {
 			r, err := gzip.NewReader(bytes.NewReader(data))
 			if err == nil {
 				defer r.Close()
 				out, err := io.ReadAll(r)
 				if err == nil {
-					v, _ := otto.ToValue(bytesToLatin1(out))
-					return v
+					return vm.ToValue(bytesToLatin1Str(out))
 				}
 			}
 		}
-		// Try zlib
 		r, err := zlib.NewReader(bytes.NewReader(data))
 		if err != nil {
-			panic(vm.MakeCustomError("Error", "unzip: "+err.Error()))
+			panic(vm.ToValue("unzip: " + err.Error()))
 		}
 		defer r.Close()
 		out, err := io.ReadAll(r)
 		if err != nil {
-			panic(vm.MakeCustomError("Error", "unzip: "+err.Error()))
+			panic(vm.ToValue("unzip: " + err.Error()))
 		}
-		v, _ := otto.ToValue(bytesToLatin1(out))
-		return v
+		return vm.ToValue(bytesToLatin1Str(out))
 	})
 
-	// --- brotli ---
-
-	obj.Set("brotliCompressSync", func(call otto.FunctionCall) otto.Value {
-		data := latin1ToBytes(call.Argument(0))
-		quality := intArg(call, 1, brotli.DefaultCompression)
+	obj.Set("brotliCompressSync", func(call goja.FunctionCall) goja.Value {
+		data := latin1ToBytes(call.Argument(0).String())
+		quality := intArgZ(call, 1, brotli.DefaultCompression)
 		var buf bytes.Buffer
 		w := brotli.NewWriterLevel(&buf, quality)
 		w.Write(data)
 		w.Close()
-		v, _ := otto.ToValue(bytesToLatin1(buf.Bytes()))
-		return v
+		return vm.ToValue(bytesToLatin1Str(buf.Bytes()))
 	})
 
-	obj.Set("brotliDecompressSync", func(call otto.FunctionCall) otto.Value {
-		data := latin1ToBytes(call.Argument(0))
+	obj.Set("brotliDecompressSync", func(call goja.FunctionCall) goja.Value {
+		data := latin1ToBytes(call.Argument(0).String())
 		r := brotli.NewReader(bytes.NewReader(data))
 		out, err := io.ReadAll(r)
 		if err != nil {
-			panic(vm.MakeCustomError("Error", "brotli decompress: "+err.Error()))
+			panic(vm.ToValue("brotli decompress: " + err.Error()))
 		}
-		v, _ := otto.ToValue(bytesToLatin1(out))
-		return v
+		return vm.ToValue(bytesToLatin1Str(out))
 	})
 
-	// --- crc32 ---
-
-	obj.Set("crc32", func(call otto.FunctionCall) otto.Value {
-		data := latin1ToBytes(call.Argument(0))
+	obj.Set("crc32", func(call goja.FunctionCall) goja.Value {
+		data := latin1ToBytes(call.Argument(0).String())
 		init := uint32(0)
-		if !call.Argument(1).IsUndefined() {
-			n, _ := call.Argument(1).ToInteger()
-			init = uint32(n)
+		if !goja.IsUndefined(call.Argument(1)) {
+			init = uint32(call.Argument(1).ToInteger())
 		}
 		result := crc32.Update(init, crc32.IEEETable, data)
-		v, _ := otto.ToValue(result)
-		return v
+		return vm.ToValue(result)
 	})
 
 	vm.Set("__zlib", obj)
 }
 
 // latin1ToBytes decodes a latin1-encoded JS string into raw bytes.
-// Each JS character (Unicode 0x00–0xFF) maps to one byte.
-func latin1ToBytes(val otto.Value) []byte {
-	s, _ := val.ToString()
+func latin1ToBytes(s string) []byte {
 	runes := []rune(s)
 	data := make([]byte, len(runes))
 	for i, r := range runes {
@@ -191,8 +162,8 @@ func latin1ToBytes(val otto.Value) []byte {
 	return data
 }
 
-// bytesToLatin1 encodes raw bytes as a latin1 string that JS can decode.
-func bytesToLatin1(data []byte) string {
+// bytesToLatin1Str encodes raw bytes as a latin1 string.
+func bytesToLatin1Str(data []byte) string {
 	runes := make([]rune, len(data))
 	for i, b := range data {
 		runes[i] = rune(b)
@@ -200,14 +171,10 @@ func bytesToLatin1(data []byte) string {
 	return string(runes)
 }
 
-func intArg(call otto.FunctionCall, idx int, def int) int {
+func intArgZ(call goja.FunctionCall, idx int, def int) int {
 	arg := call.Argument(idx)
-	if arg.IsUndefined() || arg.IsNull() {
+	if goja.IsUndefined(arg) || goja.IsNull(arg) {
 		return def
 	}
-	n, err := arg.ToInteger()
-	if err != nil {
-		return def
-	}
-	return int(n)
+	return int(arg.ToInteger())
 }

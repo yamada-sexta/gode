@@ -7,17 +7,15 @@ import (
 	"os/user"
 	"runtime"
 	"strconv"
-	"strings"
 	"syscall"
 
-	"github.com/robertkrimen/otto"
+	"github.com/dop251/goja"
 )
 
 // setupOSNative installs an __os helper object on the VM with Go-backed
-// functions that the os.js wrapper calls. This keeps OS interaction in
-// Go while exposing a Node.js-compatible API through JavaScript.
-func setupOSNative(vm *otto.Otto) {
-	osObj, _ := vm.Object(`({})`)
+// functions that the os.js wrapper calls.
+func setupOSNative(vm *goja.Runtime) {
+	osObj := vm.NewObject()
 
 	// --- Simple constants ---
 	osObj.Set("eol", "\n")
@@ -25,29 +23,25 @@ func setupOSNative(vm *otto.Otto) {
 
 	// --- Portable functions ---
 
-	osObj.Set("hostname", func(call otto.FunctionCall) otto.Value {
+	osObj.Set("hostname", func(call goja.FunctionCall) goja.Value {
 		name, _ := os.Hostname()
-		v, _ := otto.ToValue(name)
-		return v
+		return vm.ToValue(name)
 	})
 
-	osObj.Set("homedir", func(call otto.FunctionCall) otto.Value {
+	osObj.Set("homedir", func(call goja.FunctionCall) goja.Value {
 		dir, _ := os.UserHomeDir()
-		v, _ := otto.ToValue(dir)
-		return v
+		return vm.ToValue(dir)
 	})
 
-	osObj.Set("tmpdir", func(call otto.FunctionCall) otto.Value {
-		v, _ := otto.ToValue(os.TempDir())
-		return v
+	osObj.Set("tmpdir", func(call goja.FunctionCall) goja.Value {
+		return vm.ToValue(os.TempDir())
 	})
 
-	osObj.Set("platform", func(call otto.FunctionCall) otto.Value {
-		v, _ := otto.ToValue(runtime.GOOS)
-		return v
+	osObj.Set("platform", func(call goja.FunctionCall) goja.Value {
+		return vm.ToValue(runtime.GOOS)
 	})
 
-	osObj.Set("arch", func(call otto.FunctionCall) otto.Value {
+	osObj.Set("arch", func(call goja.FunctionCall) goja.Value {
 		a := runtime.GOARCH
 		switch a {
 		case "amd64":
@@ -55,11 +49,10 @@ func setupOSNative(vm *otto.Otto) {
 		case "386":
 			a = "ia32"
 		}
-		v, _ := otto.ToValue(a)
-		return v
+		return vm.ToValue(a)
 	})
 
-	osObj.Set("type", func(call otto.FunctionCall) otto.Value {
+	osObj.Set("type", func(call goja.FunctionCall) goja.Value {
 		t := runtime.GOOS
 		switch t {
 		case "linux":
@@ -71,23 +64,20 @@ func setupOSNative(vm *otto.Otto) {
 		case "freebsd":
 			t = "FreeBSD"
 		}
-		v, _ := otto.ToValue(t)
-		return v
+		return vm.ToValue(t)
 	})
 
-	osObj.Set("endianness", func(call otto.FunctionCall) otto.Value {
+	osObj.Set("endianness", func(call goja.FunctionCall) goja.Value {
 		e := "LE"
 		switch runtime.GOARCH {
 		case "ppc64", "mips", "mips64", "s390x":
 			e = "BE"
 		}
-		v, _ := otto.ToValue(e)
-		return v
+		return vm.ToValue(e)
 	})
 
-	osObj.Set("availableParallelism", func(call otto.FunctionCall) otto.Value {
-		v, _ := otto.ToValue(runtime.NumCPU())
-		return v
+	osObj.Set("availableParallelism", func(call goja.FunctionCall) goja.Value {
+		return vm.ToValue(runtime.NumCPU())
 	})
 
 	// --- Linux syscall-backed functions ---
@@ -95,122 +85,112 @@ func setupOSNative(vm *otto.Otto) {
 	var uname syscall.Utsname
 	syscall.Uname(&uname)
 
-	osObj.Set("release", func(call otto.FunctionCall) otto.Value {
-		v, _ := otto.ToValue(byteFieldToString(uname.Release))
-		return v
+	osObj.Set("release", func(call goja.FunctionCall) goja.Value {
+		return vm.ToValue(byteFieldToString(uname.Release))
 	})
 
-	osObj.Set("version", func(call otto.FunctionCall) otto.Value {
-		v, _ := otto.ToValue(byteFieldToString(uname.Version))
-		return v
+	osObj.Set("version", func(call goja.FunctionCall) goja.Value {
+		return vm.ToValue(byteFieldToString(uname.Version))
 	})
 
-	osObj.Set("machine", func(call otto.FunctionCall) otto.Value {
-		v, _ := otto.ToValue(byteFieldToString(uname.Machine))
-		return v
+	osObj.Set("machine", func(call goja.FunctionCall) goja.Value {
+		return vm.ToValue(byteFieldToString(uname.Machine))
 	})
 
-	osObj.Set("uptime", func(call otto.FunctionCall) otto.Value {
+	osObj.Set("uptime", func(call goja.FunctionCall) goja.Value {
 		var info syscall.Sysinfo_t
 		syscall.Sysinfo(&info)
-		v, _ := otto.ToValue(info.Uptime)
-		return v
+		return vm.ToValue(info.Uptime)
 	})
 
-	osObj.Set("freemem", func(call otto.FunctionCall) otto.Value {
+	osObj.Set("freemem", func(call goja.FunctionCall) goja.Value {
 		var info syscall.Sysinfo_t
 		syscall.Sysinfo(&info)
-		v, _ := otto.ToValue(info.Freeram * uint64(info.Unit))
-		return v
+		return vm.ToValue(info.Freeram * uint64(info.Unit))
 	})
 
-	osObj.Set("totalmem", func(call otto.FunctionCall) otto.Value {
+	osObj.Set("totalmem", func(call goja.FunctionCall) goja.Value {
 		var info syscall.Sysinfo_t
 		syscall.Sysinfo(&info)
-		v, _ := otto.ToValue(info.Totalram * uint64(info.Unit))
-		return v
+		return vm.ToValue(info.Totalram * uint64(info.Unit))
 	})
 
-	osObj.Set("loadavg", func(call otto.FunctionCall) otto.Value {
+	osObj.Set("loadavg", func(call goja.FunctionCall) goja.Value {
 		var info syscall.Sysinfo_t
 		syscall.Sysinfo(&info)
-		arr, _ := vm.Object(`([])`)
-		arr.Call("push", float64(info.Loads[0])/65536.0)
-		arr.Call("push", float64(info.Loads[1])/65536.0)
-		arr.Call("push", float64(info.Loads[2])/65536.0)
-		return arr.Value()
+		return vm.ToValue([]float64{
+			float64(info.Loads[0]) / 65536.0,
+			float64(info.Loads[1]) / 65536.0,
+			float64(info.Loads[2]) / 65536.0,
+		})
 	})
 
-	// --- CPUs (reads /proc/cpuinfo on Linux) ---
+	// --- CPUs ---
 
-	osObj.Set("cpus", func(call otto.FunctionCall) otto.Value {
-		arr, _ := vm.Object(`([])`)
+	osObj.Set("cpus", func(call goja.FunctionCall) goja.Value {
 		cpus := parseCPUInfo()
-		for _, c := range cpus {
-			cpu, _ := vm.Object(`({})`)
-			cpu.Set("model", c.model)
-			cpu.Set("speed", c.speed)
-			times, _ := vm.Object(`({})`)
-			times.Set("user", 0)
-			times.Set("nice", 0)
-			times.Set("sys", 0)
-			times.Set("idle", 0)
-			times.Set("irq", 0)
-			cpu.Set("times", times.Value())
-			arr.Call("push", cpu.Value())
+		result := make([]interface{}, len(cpus))
+		for i, c := range cpus {
+			times := map[string]interface{}{
+				"user": 0, "nice": 0, "sys": 0, "idle": 0, "irq": 0,
+			}
+			result[i] = map[string]interface{}{
+				"model": c.model, "speed": c.speed, "times": times,
+			}
 		}
-		return arr.Value()
+		return vm.ToValue(result)
 	})
 
 	// --- Network interfaces ---
 
-	osObj.Set("networkInterfaces", func(call otto.FunctionCall) otto.Value {
-		result, _ := vm.Object(`({})`)
+	osObj.Set("networkInterfaces", func(call goja.FunctionCall) goja.Value {
+		result := vm.NewObject()
 		ifaces, err := net.Interfaces()
 		if err != nil {
-			return result.Value()
+			return result
 		}
 		for _, iface := range ifaces {
 			addrs, err := iface.Addrs()
 			if err != nil || len(addrs) == 0 {
 				continue
 			}
-			arr, _ := vm.Object(`([])`)
+			var entries []interface{}
 			for _, addr := range addrs {
 				ipnet, ok := addr.(*net.IPNet)
 				if !ok {
 					continue
 				}
-				entry, _ := vm.Object(`({})`)
-				entry.Set("address", ipnet.IP.String())
-				entry.Set("netmask", net.IP(ipnet.Mask).String())
 				family := "IPv4"
 				if ipnet.IP.To4() == nil {
 					family = "IPv6"
 				}
-				entry.Set("family", family)
 				mac := iface.HardwareAddr.String()
 				if mac == "" {
 					mac = "00:00:00:00:00:00"
 				}
-				entry.Set("mac", mac)
-				entry.Set("internal", iface.Flags&net.FlagLoopback != 0)
 				ones, _ := ipnet.Mask.Size()
-				entry.Set("cidr", fmt.Sprintf("%s/%d", ipnet.IP.String(), ones))
-				arr.Call("push", entry.Value())
+				entry := map[string]interface{}{
+					"address":  ipnet.IP.String(),
+					"netmask":  net.IP(ipnet.Mask).String(),
+					"family":   family,
+					"mac":      mac,
+					"internal": iface.Flags&net.FlagLoopback != 0,
+					"cidr":     fmt.Sprintf("%s/%d", ipnet.IP.String(), ones),
+				}
+				entries = append(entries, entry)
 			}
-			result.Set(iface.Name, arr.Value())
+			result.Set(iface.Name, entries)
 		}
-		return result.Value()
+		return result
 	})
 
 	// --- User info ---
 
-	osObj.Set("userInfo", func(call otto.FunctionCall) otto.Value {
-		info, _ := vm.Object(`({})`)
+	osObj.Set("userInfo", func(call goja.FunctionCall) goja.Value {
+		info := vm.NewObject()
 		u, err := user.Current()
 		if err != nil {
-			return info.Value()
+			return info
 		}
 		uid, _ := strconv.Atoi(u.Uid)
 		gid, _ := strconv.Atoi(u.Gid)
@@ -220,69 +200,12 @@ func setupOSNative(vm *otto.Otto) {
 		info.Set("homedir", u.HomeDir)
 		shell := os.Getenv("SHELL")
 		if shell == "" {
-			info.Set("shell", otto.NullValue())
+			info.Set("shell", goja.Null())
 		} else {
 			info.Set("shell", shell)
 		}
-		return info.Value()
+		return info
 	})
 
 	vm.Set("__os", osObj)
-}
-
-// byteFieldToString converts a [65]int8 utsname field to a Go string.
-func byteFieldToString(arr [65]int8) string {
-	n := 0
-	for n < len(arr) && arr[n] != 0 {
-		n++
-	}
-	buf := make([]byte, n)
-	for i := 0; i < n; i++ {
-		buf[i] = byte(arr[i])
-	}
-	return string(buf)
-}
-
-type cpuInfo struct {
-	model string
-	speed int
-}
-
-// parseCPUInfo reads /proc/cpuinfo and returns per-core info.
-func parseCPUInfo() []cpuInfo {
-	data, err := os.ReadFile("/proc/cpuinfo")
-	if err != nil {
-		n := runtime.NumCPU()
-		cpus := make([]cpuInfo, n)
-		return cpus
-	}
-
-	var cpus []cpuInfo
-	var cur cpuInfo
-	for _, line := range strings.Split(string(data), "\n") {
-		if strings.HasPrefix(line, "model name") {
-			parts := strings.SplitN(line, ":", 2)
-			if len(parts) == 2 {
-				cur.model = strings.TrimSpace(parts[1])
-			}
-		} else if strings.HasPrefix(line, "cpu MHz") {
-			parts := strings.SplitN(line, ":", 2)
-			if len(parts) == 2 {
-				f, _ := strconv.ParseFloat(strings.TrimSpace(parts[1]), 64)
-				cur.speed = int(f)
-			}
-		} else if line == "" && cur.model != "" {
-			cpus = append(cpus, cur)
-			cur = cpuInfo{}
-		}
-	}
-	if cur.model != "" {
-		cpus = append(cpus, cur)
-	}
-
-	// Fallback if parsing yielded nothing.
-	if len(cpus) == 0 {
-		cpus = make([]cpuInfo, runtime.NumCPU())
-	}
-	return cpus
 }
