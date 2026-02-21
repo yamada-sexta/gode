@@ -22,6 +22,9 @@ var pathSource string
 //go:embed os.js
 var osSource string
 
+//go:embed zlib.js
+var zlibSource string
+
 // Loader manages built-in module registration, caching, and the
 // require() function installed on the VM.
 type Loader struct {
@@ -41,6 +44,7 @@ func NewLoader(vm *otto.Otto) *Loader {
 
 	// Install native helpers needed by JS modules.
 	setupOSNative(vm)
+	setupZlibNative(vm)
 
 	// Built-in modules.
 	l.Register("assert", assertSource)
@@ -51,6 +55,8 @@ func NewLoader(vm *otto.Otto) *Loader {
 	l.Register("node:path", pathSource)
 	l.Register("os", osSource)
 	l.Register("node:os", osSource)
+	l.Register("zlib", zlibSource)
+	l.Register("node:zlib", zlibSource)
 
 	// Install require().
 	vm.Set("require", l.require)

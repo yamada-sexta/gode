@@ -1,0 +1,5 @@
+{
+  "dependencies": {
+    "check-ecmascript-version-compatibility": "^0.2.0"
+  }
+}
