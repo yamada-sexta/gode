@@ -81,7 +81,7 @@ func main() {
 	if opts.Eval != "" {
 		runner.RunEval(vm, opts.Eval)
 		if opts.Interactive {
-			repl.Run(vm)
+			repl.Run(vm, getVersion())
 		}
 		return
 	}
@@ -90,7 +90,7 @@ func main() {
 	if opts.Print != "" {
 		runner.RunPrint(vm, opts.Print)
 		if opts.Interactive {
-			repl.Run(vm)
+			repl.Run(vm, getVersion())
 		}
 		return
 	}
@@ -105,13 +105,13 @@ func main() {
 	if opts.Script != "" {
 		runner.RunFile(vm, opts.Script)
 		if opts.Interactive {
-			repl.Run(vm)
+			repl.Run(vm, getVersion())
 		}
 		return
 	}
 
 	// Default: interactive REPL.
-	repl.Run(vm)
+	repl.Run(vm, getVersion())
 }
 
 // parseArgs processes the raw CLI arguments following Node.js conventions:
